@@ -1,0 +1,22 @@
+# Credentials & Auth data
+user_auth.csv
+.env
+
+# Telethon session databases and journal files
+*.session
+*.session-journal
+
+# Scraped list and campaign logs
+members.csv
+sent_history.txt
+
+# Python cache & compile files
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Operating system files
+.DS_Store
+Thumbs.db
+Desktop.ini
