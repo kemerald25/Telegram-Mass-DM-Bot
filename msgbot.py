@@ -97,7 +97,7 @@ def main():
 
     try:
         SLEEP_TIME = int(input("Enter Delay Timing For Per Message Sending : "))
-        MAX_DMS_PER_ACCOUNT = int(input("Enter max DMs per account before proactive rotation: "))
+        MAX_DMS_PER_ACCOUNT = int(input("Enter max DMs per account before proactive rotation (default 5): "))
         mode = int(input("Enter 1 to send by user ID or 2 to send by username: "))
         if mode not in [1, 2]:
             print("Invalid sending mode. Exiting.")
@@ -120,12 +120,16 @@ def main():
 
     sent_history = load_sent_history()
     
-    active_idx = 0
+    # Initialize variables for round-robin rotation
+    available_accounts = list(accounts)
+    current_account_index = 0
     client = None
     sent_count_for_current_account = 0
 
-    def get_next_client():
-        nonlocal active_idx, client, sent_count_for_current_account
+    def switch_client(proactive=True):
+        nonlocal current_account_index, client, sent_count_for_current_account
+        
+        # 1. Disconnect current client if active
         if client:
             try:
                 client.disconnect()
@@ -133,12 +137,24 @@ def main():
                 pass
             client = None
 
-        while active_idx < len(accounts):
-            acc = accounts[active_idx]
+        # 2. Adjust available_accounts and index based on trigger
+        if available_accounts:
+            if not proactive:
+                # Account failed/banned/flooded, remove it from pool
+                failed_acc = available_accounts.pop(current_account_index)
+                print(f"[Rotation] Removed failed/banned account {failed_acc['phone']} from rotation pool.")
+            else:
+                # Proactive rotation: move to the next account
+                current_account_index = (current_account_index + 1) % len(available_accounts)
+
+        # 3. Connect to the next available account in the pool
+        while available_accounts:
+            current_account_index = current_account_index % len(available_accounts)
+            acc = available_accounts[current_account_index]
             phone = acc['phone']
             api_id = acc['api_id']
             api_hash = acc['api_hash']
-            print(f"\n[Rotation] Connecting to account: {phone}...")
+            print(f"\n[Rotation] Connecting to account: {phone} ({current_account_index + 1}/{len(available_accounts)})...")
             
             c = TelegramClient(
                 f"session_{phone}", 
@@ -151,22 +167,27 @@ def main():
             try:
                 c.connect()
                 if not c.is_user_authorized():
-                    print(f"[Rotation] Account {phone} is not authorized. Skipping...")
+                    print(f"[Rotation] Account {phone} is not authorized. Removing from pool...")
                     c.disconnect()
-                    active_idx += 1
+                    available_accounts.pop(current_account_index)
                     continue
                 
+                # Success
                 client = c
                 sent_count_for_current_account = 0
                 print(f"[Rotation] Successfully connected using {phone}!")
                 return client
             except Exception as e:
-                print(f"[Rotation] Failed to connect using {phone}: {e}")
-                active_idx += 1
+                print(f"[Rotation] Failed to connect using {phone}: {e}. Removing from pool...")
+                try:
+                    c.disconnect()
+                except:
+                    pass
+                available_accounts.pop(current_account_index)
                 
         return None
 
-    client = get_next_client()
+    client = switch_client(proactive=True)
     if not client:
         print("\nNo authorized accounts available. Exiting.")
         sys.exit(1)
@@ -183,12 +204,15 @@ def main():
             continue
 
         if sent_count_for_current_account >= MAX_DMS_PER_ACCOUNT:
-            print(f"\n[Proactive Rotate] Reached max DM limit of {MAX_DMS_PER_ACCOUNT} for account {accounts[active_idx]['phone']}.")
-            active_idx += 1
-            client = get_next_client()
-            if not client:
-                print("\n[Out of Accounts] No more active accounts available.")
-                break
+            if len(available_accounts) > 1:
+                print(f"\n[Proactive Rotate] Reached max DM limit of {MAX_DMS_PER_ACCOUNT} for account {available_accounts[current_account_index]['phone']}. Rotating...")
+                client = switch_client(proactive=True)
+                if not client:
+                    print("\n[Out of Accounts] No more active accounts available.")
+                    break
+            else:
+                print(f"\n[Proactive Check] Reached limit of {MAX_DMS_PER_ACCOUNT} for the only remaining account {available_accounts[current_account_index]['phone']}. Continuing...")
+                sent_count_for_current_account = 0
 
         sent = False
         while not sent:
@@ -213,7 +237,7 @@ def main():
                 except IndexError:
                     pass
 
-                print(f"Sending message to {user_display_name} ({user_id}) using account {accounts[active_idx]['phone']}...")
+                print(f"Sending message to {user_display_name} ({user_id}) using account {available_accounts[current_account_index]['phone']}...")
                 client.send_message(receiver, formatted_msg)
                 
                 save_sent_history(user_id)
@@ -227,20 +251,14 @@ def main():
                 time.sleep(actual_delay)
 
             except PeerFloodError:
-                print(f"[Error] Account {accounts[active_idx]['phone']} got PeerFloodError.")
-                print("Rotating to next account...")
-                active_idx += 1
-                client = get_next_client()
+                print(f"[Error] Account {available_accounts[current_account_index]['phone']} got PeerFloodError. Rotating...")
+                client = switch_client(proactive=False)
             except FloodWaitError as fwe:
-                print(f"[Error] Account {accounts[active_idx]['phone']} got FloodWaitError (Must wait {fwe.seconds}s).")
-                print("Rotating to next account...")
-                active_idx += 1
-                client = get_next_client()
+                print(f"[Error] Account {available_accounts[current_account_index]['phone']} got FloodWaitError (Must wait {fwe.seconds}s). Rotating...")
+                client = switch_client(proactive=False)
             except (UserDeactivatedError, AuthKeyUnregisteredError) as ban_err:
-                print(f"[Error] Account {accounts[active_idx]['phone']} is banned or deactivated: {ban_err}")
-                print("Rotating to next account...")
-                active_idx += 1
-                client = get_next_client()
+                print(f"[Error] Account {available_accounts[current_account_index]['phone']} is banned or deactivated: {ban_err}. Rotating...")
+                client = switch_client(proactive=False)
             except ValueError as val_err:
                 print(f"[Target Error] Cannot resolve entity for {user_display_name}: {val_err}")
                 print("Skipping user.")
@@ -248,10 +266,8 @@ def main():
             except Exception as e:
                 err_str = str(e).lower()
                 if any(x in err_str for x in ["deactivated", "unregistered", "auth", "flood"]):
-                    print(f"[Error] Account {accounts[active_idx]['phone']} encountered account error: {e}")
-                    print("Rotating to next account...")
-                    active_idx += 1
-                    client = get_next_client()
+                    print(f"[Error] Account {available_accounts[current_account_index]['phone']} encountered account error: {e}. Rotating...")
+                    client = switch_client(proactive=False)
                 else:
                     print(f"[Send Error] Failed to send to {user_display_name}: {e}")
                     print("Skipping user and continuing...")
