@@ -6,3 +6,4 @@ pyasn1==0.4.8
 rsa==4.7.2
 Telethon==1.27.0
 PySocks>=1.7.1
+Flask>=2.3.0

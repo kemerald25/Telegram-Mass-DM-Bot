@@ -1,6 +1,8 @@
 # Credentials & Auth data
 user_auth.csv
+proxy_default.json
 .env
+
 
 # Telethon session databases and journal files
 *.session

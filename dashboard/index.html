@@ -1,0 +1,406 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>TG DM Bot — Dashboard</title>
+  <meta name="description" content="Telegram Mass DM Bot control dashboard">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<!-- ══ LOGIN ══════════════════════════════════════════════ -->
+<div id="login-overlay" class="login-overlay hidden">
+  <div class="login-card">
+    <div class="login-logo">
+      <span class="logo-icon">🚀</span>
+      <h1>TG DM Bot</h1>
+      <p>Secure Dashboard Access</p>
+    </div>
+    <form id="login-form" class="login-form" autocomplete="off">
+      <div class="form-group">
+        <label for="login-user">Username</label>
+        <input type="text" id="login-user" placeholder="Enter username" autocomplete="username" required>
+      </div>
+      <div class="form-group">
+        <label for="login-pass">Password</label>
+        <input type="password" id="login-pass" placeholder="Enter password" autocomplete="current-password" required>
+      </div>
+      <div id="login-error" class="error-msg hidden"></div>
+      <button type="submit" class="btn btn-primary btn-full" id="login-btn">Sign In →</button>
+    </form>
+  </div>
+</div>
+
+<!-- ══ APP ════════════════════════════════════════════════ -->
+<div id="app" class="app hidden">
+
+  <!-- Sidebar -->
+  <aside class="sidebar">
+    <div class="sidebar-logo">
+      <span class="logo-icon">🚀</span>
+      <span class="logo-text">TG DM Bot</span>
+    </div>
+    <nav class="sidebar-nav">
+      <a href="#" class="nav-item active" data-section="overview">
+        <span class="nav-icon">📊</span>
+        <span class="nav-label">Overview</span>
+      </a>
+      <a href="#" class="nav-item" data-section="accounts">
+        <span class="nav-icon">📱</span>
+        <span class="nav-label">Accounts</span>
+      </a>
+      <a href="#" class="nav-item" data-section="proxy">
+        <span class="nav-icon">🌐</span>
+        <span class="nav-label">Proxy</span>
+      </a>
+      <a href="#" class="nav-item" data-section="messages">
+        <span class="nav-icon">✉️</span>
+        <span class="nav-label">Messages</span>
+      </a>
+      <a href="#" class="nav-item" data-section="campaign">
+        <span class="nav-icon">🚀</span>
+        <span class="nav-label">Campaign</span>
+      </a>
+    </nav>
+    <div class="sidebar-footer">
+      <button id="logout-btn" class="btn-ghost">⟶ Logout</button>
+    </div>
+  </aside>
+
+  <!-- Main -->
+  <div class="main-content">
+    <header class="topbar">
+      <div class="topbar-left">
+        <h2 id="page-title">Overview</h2>
+      </div>
+      <div class="topbar-right">
+        <div id="campaign-badge" class="status-badge status-stopped">
+          <span class="badge-dot"></span>
+          <span id="campaign-badge-text">Stopped</span>
+        </div>
+      </div>
+    </header>
+
+    <main class="content-area">
+
+      <!-- ── Overview ── -->
+      <section id="section-overview" class="section active">
+        <div class="stats-grid">
+          <div class="stat-card">
+            <div class="stat-icon">📱</div>
+            <div class="stat-info">
+              <div class="stat-value" id="stat-accounts">—</div>
+              <div class="stat-label">Accounts</div>
+            </div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-icon">👥</div>
+            <div class="stat-info">
+              <div class="stat-value" id="stat-members">—</div>
+              <div class="stat-label">Members</div>
+            </div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-icon">📨</div>
+            <div class="stat-info">
+              <div class="stat-value" id="stat-sent">0</div>
+              <div class="stat-label">Sent This Session</div>
+            </div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-icon">⚡</div>
+            <div class="stat-info">
+              <div class="stat-value" id="stat-status">Idle</div>
+              <div class="stat-label">Campaign Status</div>
+            </div>
+          </div>
+        </div>
+        <div class="quick-actions">
+          <h3>Quick Actions</h3>
+          <div class="action-btns">
+            <button class="btn btn-primary" onclick="navigate('accounts')">+ Add Account</button>
+            <button class="btn btn-success" onclick="navigate('campaign')">▶ Campaign</button>
+            <button class="btn btn-outline" onclick="navigate('messages')">✉ Edit Messages</button>
+            <button class="btn btn-secondary" onclick="navigate('proxy')">🌐 Proxy Settings</button>
+          </div>
+        </div>
+      </section>
+
+      <!-- ── Accounts ── -->
+      <section id="section-accounts" class="section">
+        <div class="section-header">
+          <h3>Registered Accounts</h3>
+          <button class="btn btn-primary" id="add-account-btn">+ Add Account</button>
+        </div>
+        <div class="table-container">
+          <table class="data-table" id="accounts-table">
+            <thead>
+              <tr>
+                <th>Phone</th>
+                <th>API ID</th>
+                <th>Proxy</th>
+                <th>Session</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody id="accounts-tbody">
+              <tr><td colspan="5" class="loading-cell">Loading accounts...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- ── Proxy ── -->
+      <section id="section-proxy" class="section">
+        <div class="section-header"><h3>Proxy Management</h3></div>
+        <div class="proxy-layout">
+          <div class="card">
+            <div class="card-header">
+              <h4>Set Proxy for ALL Accounts</h4>
+              <p class="card-subtitle">Saves as default — new accounts get it automatically</p>
+            </div>
+            <form id="proxy-all-form" class="proxy-form">
+              <div class="form-row">
+                <div class="form-group">
+                  <label>Type</label>
+                  <select id="px-type">
+                    <option value="socks5">SOCKS5</option>
+                    <option value="socks4">SOCKS4</option>
+                    <option value="http">HTTP</option>
+                  </select>
+                </div>
+                <div class="form-group flex-2">
+                  <label>Host</label>
+                  <input type="text" id="px-host" placeholder="p.webshare.io">
+                </div>
+                <div class="form-group">
+                  <label>Port</label>
+                  <input type="number" id="px-port" placeholder="80">
+                </div>
+              </div>
+              <div class="form-row">
+                <div class="form-group">
+                  <label>Username (optional)</label>
+                  <input type="text" id="px-user" placeholder="proxy-username">
+                </div>
+                <div class="form-group">
+                  <label>Password (optional)</label>
+                  <input type="password" id="px-pass" placeholder="proxy-password">
+                </div>
+              </div>
+              <div id="proxy-form-error" class="error-msg hidden"></div>
+              <button type="submit" class="btn btn-primary">Apply to All Accounts</button>
+            </form>
+          </div>
+          <div class="card">
+            <div class="card-header"><h4>Per-Account Proxy Status</h4></div>
+            <div id="proxy-accounts-list" class="proxy-list">
+              <div class="loading-cell">Loading...</div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ── Messages ── -->
+      <section id="section-messages" class="section">
+        <div class="section-header">
+          <h3>Message Templates</h3>
+          <button class="btn btn-primary" id="save-msg-btn">Save Changes</button>
+        </div>
+        <div class="messages-layout">
+          <div class="card flex-1">
+            <div class="card-header" style="display:flex;align-items:center;justify-content:space-between">
+              <h4>Edit Templates</h4>
+              <span class="template-count" id="template-count">0 templates</span>
+            </div>
+            <textarea id="msg-editor" class="message-textarea" spellcheck="false"></textarea>
+          </div>
+          <div class="card msg-guide">
+            <div class="card-header"><h4>How It Works</h4></div>
+            <div class="guide-content">
+              <div class="guide-item">
+                <div class="guide-icon">🎲</div>
+                <div>
+                  <strong>Multiple Templates</strong>
+                  <p>Separate each template with <code>---</code> on its own line. The bot picks one at random per recipient.</p>
+                </div>
+              </div>
+              <div class="guide-item">
+                <div class="guide-icon">👤</div>
+                <div>
+                  <strong>Name Placeholder</strong>
+                  <p>Use <code>{name}</code> anywhere in your message to auto-insert the recipient's display name.</p>
+                </div>
+              </div>
+              <div class="guide-item">
+                <div class="guide-icon">🛡️</div>
+                <div>
+                  <strong>Anti-Spam Tip</strong>
+                  <p>4+ varied templates dramatically reduces spam flag risk. Vary tone, length, and wording.</p>
+                </div>
+              </div>
+              <div class="guide-example">
+                <code>Hey {name}! First template...<br>---<br>Hi {name}! Second variation...<br>---<br>What's up {name}? Third one...</code>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ── Campaign ── -->
+      <section id="section-campaign" class="section">
+        <div class="campaign-layout">
+          <div class="card campaign-config">
+            <div class="card-header"><h4>Campaign Settings</h4></div>
+            <form id="campaign-form">
+              <div class="form-group">
+                <label>Delay Between Messages (seconds)</label>
+                <input type="number" id="camp-delay" value="60" min="10" max="3600">
+                <span class="form-hint">Base delay — actual varies ±30%</span>
+              </div>
+              <div class="form-group">
+                <label>Max DMs Per Account</label>
+                <input type="number" id="camp-max-dms" value="2" min="1" max="50">
+                <span class="form-hint">Actual count varies ±2 per session</span>
+              </div>
+              <div class="form-group">
+                <label>Send Mode</label>
+                <div class="radio-group">
+                  <label class="radio-label">
+                    <input type="radio" name="camp-mode" value="1" checked>
+                    By User ID (recommended)
+                  </label>
+                  <label class="radio-label">
+                    <input type="radio" name="camp-mode" value="2">
+                    By Username
+                  </label>
+                </div>
+              </div>
+              <div class="campaign-stats">
+                <div class="mini-stat">
+                  <span class="mini-stat-label">Sent</span>
+                  <span class="mini-stat-value" id="cs-sent">0</span>
+                </div>
+                <div class="mini-stat">
+                  <span class="mini-stat-label">Total</span>
+                  <span class="mini-stat-value" id="cs-total">—</span>
+                </div>
+                <div class="mini-stat">
+                  <span class="mini-stat-label">Account</span>
+                  <span class="mini-stat-value" id="cs-account" style="font-size:11px">—</span>
+                </div>
+              </div>
+              <div class="campaign-actions">
+                <button type="submit" class="btn btn-success" id="start-btn">▶ Start</button>
+                <button type="button" class="btn btn-danger" id="stop-btn" disabled>■ Stop</button>
+              </div>
+            </form>
+          </div>
+          <div class="card campaign-logs">
+            <div class="card-header">
+              <h4>Live Logs</h4>
+              <button class="btn-ghost btn-sm" id="clear-logs-btn">Clear</button>
+            </div>
+            <div id="log-viewer" class="log-viewer">
+              <span class="log-line log-dim">Waiting for campaign to start...</span>
+            </div>
+          </div>
+        </div>
+      </section>
+
+    </main>
+  </div>
+</div>
+
+<!-- ══ ADD ACCOUNT MODAL ══════════════════════════════════ -->
+<div id="add-modal" class="modal hidden">
+  <div class="modal-backdrop" id="modal-backdrop"></div>
+  <div class="modal-content">
+    <div class="modal-header">
+      <h3>Add Telegram Account</h3>
+      <button class="modal-close" id="close-modal-btn">✕</button>
+    </div>
+
+    <!-- Steps -->
+    <div class="steps">
+      <div class="step active" id="ind-1">
+        <div class="step-num">1</div>
+        <div class="step-label">Credentials</div>
+      </div>
+      <div class="step-line" id="line-1"></div>
+      <div class="step" id="ind-2">
+        <div class="step-num">2</div>
+        <div class="step-label">OTP Code</div>
+      </div>
+      <div class="step-line" id="line-2"></div>
+      <div class="step" id="ind-3">
+        <div class="step-num">3</div>
+        <div class="step-label">2FA (if needed)</div>
+      </div>
+    </div>
+
+    <!-- Step 1 -->
+    <div id="modal-s1" class="modal-step">
+      <div class="form-group">
+        <label for="acc-phone">Phone Number</label>
+        <input type="text" id="acc-phone" placeholder="+1234567890">
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label for="acc-api-id">API ID</label>
+          <input type="text" id="acc-api-id" placeholder="12345678">
+        </div>
+        <div class="form-group flex-2">
+          <label for="acc-api-hash">API Hash</label>
+          <input type="text" id="acc-api-hash" placeholder="from my.telegram.org">
+        </div>
+      </div>
+      <div id="s1-error" class="error-msg hidden"></div>
+      <button class="btn btn-primary btn-full" id="send-otp-btn">Send OTP Code →</button>
+      <p class="modal-hint">Get credentials at <a href="https://my.telegram.org" target="_blank">my.telegram.org</a> → API Development Tools</p>
+    </div>
+
+    <!-- Step 2 -->
+    <div id="modal-s2" class="modal-step hidden">
+      <div class="otp-info">
+        <div class="otp-icon">📱</div>
+        <p>Telegram sent a verification code to<br><strong id="otp-phone-label"></strong></p>
+      </div>
+      <div class="form-group">
+        <label for="acc-otp">Verification Code</label>
+        <input type="text" id="acc-otp" placeholder="1 2 3 4 5" maxlength="10" class="otp-input" inputmode="numeric">
+      </div>
+      <div id="s2-error" class="error-msg hidden"></div>
+      <button class="btn btn-primary btn-full" id="verify-otp-btn">Verify Code →</button>
+    </div>
+
+    <!-- Step 3 -->
+    <div id="modal-s3" class="modal-step hidden">
+      <div class="otp-info">
+        <div class="otp-icon">🔐</div>
+        <p>This account has <strong>Two-Factor Authentication</strong> enabled.<br>Enter your Telegram password to continue.</p>
+      </div>
+      <div class="form-group">
+        <label for="acc-2fa">Telegram 2FA Password</label>
+        <input type="password" id="acc-2fa" placeholder="Your Telegram password">
+      </div>
+      <div id="s3-error" class="error-msg hidden"></div>
+      <button class="btn btn-primary btn-full" id="verify-2fa-btn">Complete Setup →</button>
+    </div>
+
+    <!-- Success -->
+    <div id="modal-done" class="modal-step hidden">
+      <div class="success-state">
+        <div class="success-icon">✅</div>
+        <h4>Account Added!</h4>
+        <p id="success-msg">The account was registered successfully.</p>
+        <button class="btn btn-primary" id="modal-done-btn">Done</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="app.js"></script>
+</body>
+</html>
