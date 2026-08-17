@@ -7,7 +7,8 @@ Access: http://your-droplet-ip:8000
 
 from flask import Flask, request, jsonify, session, Response, send_from_directory
 from telethon.sync import TelegramClient
-from telethon.tl.types import InputPeerUser
+from telethon.tl.functions.messages import GetDialogsRequest
+from telethon.tl.types import InputPeerEmpty, InputPeerUser
 from telethon.errors import (
     SessionPasswordNeededError, PhoneCodeInvalidError, PhoneCodeExpiredError,
     PeerFloodError, UserDeactivatedError, AuthKeyUnregisteredError, FloodWaitError
@@ -31,11 +32,11 @@ app = Flask(__name__, static_folder='dashboard', static_url_path='/dashboard')
 app.secret_key = 'tgdmbot-sk-7X2pL9mK4nQ8rJ5vC'
 app.permanent_session_lifetime = timedelta(hours=24)
 
-# ════ CHANGE THESE BEFORE DEPLOYING ════
-DASHBOARD_USER = "admin"
-DASHBOARD_PASS = "dmbot2024!"
-PORT           = 8000
-# ════════════════════════════════════════
+# ════ CONFIGURATION (Can be set via env variables) ════
+DASHBOARD_USER = os.environ.get('DASHBOARD_USER', 'admin')
+DASHBOARD_PASS = os.environ.get('DASHBOARD_PASS', 'dmbot2024!')
+PORT           = int(os.environ.get('PORT', 8000))
+# ══════════════════════════════════════════════════════
 
 DEFAULT_PROXY_FILE = 'proxy_default.json'
 
@@ -687,6 +688,114 @@ def campaign_logs():
                 yield f"data: {json.dumps({'heartbeat': True})}\n\n"
     return Response(generate(), mimetype='text/event-stream',
                     headers={'Cache-Control': 'no-cache', 'X-Accel-Buffering': 'no'})
+
+# ─────────────────────────────────────────────────────────────
+# Scraper API
+# ─────────────────────────────────────────────────────────────
+@app.route('/api/scraper/groups', methods=['GET'])
+@login_required
+def get_scraper_groups():
+    check_loop()
+    phone = request.args.get('phone', '').strip()
+    if not phone:
+        return jsonify({'error': 'phone is required'}), 400
+
+    accounts = load_accounts()
+    acc = next((a for a in accounts if a['phone'] == phone), None)
+    if not acc:
+        return jsonify({'error': 'Account not found'}), 404
+
+    proxy = build_proxy_arg(acc)
+    client = TelegramClient(f"session_{phone}", int(acc['api_id']), acc['api_hash'], proxy=proxy)
+    try:
+        client.connect()
+        if not client.is_user_authorized():
+            return jsonify({'error': 'Account not authorized'}), 401
+
+        chats = []
+        last_date = None
+        result = client(GetDialogsRequest(
+            offset_date=last_date,
+            offset_id=0,
+            offset_peer=InputPeerEmpty(),
+            limit=500,
+            hash=0
+        ))
+        chats.extend(result.chats)
+        
+        groups = []
+        for chat in chats:
+            try:
+                if chat.megagroup:
+                    groups.append({
+                        'id': chat.id,
+                        'title': chat.title,
+                        'access_hash': getattr(chat, 'access_hash', 0)
+                    })
+            except AttributeError:
+                continue
+
+        client.disconnect()
+        return jsonify({'groups': groups})
+    except Exception as e:
+        try: client.disconnect()
+        except: pass
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/scraper/scrape', methods=['POST'])
+@login_required
+def start_scrape():
+    check_loop()
+    data = request.json or {}
+    phone = data.get('phone', '').strip()
+    group_id = data.get('group_id')
+
+    if not phone or not group_id:
+        return jsonify({'error': 'phone and group_id are required'}), 400
+
+    accounts = load_accounts()
+    acc = next((a for a in accounts if a['phone'] == phone), None)
+    if not acc:
+        return jsonify({'error': 'Account not found'}), 404
+
+    proxy = build_proxy_arg(acc)
+    client = TelegramClient(f"session_{phone}", int(acc['api_id']), acc['api_hash'], proxy=proxy)
+    try:
+        client.connect()
+        if not client.is_user_authorized():
+            return jsonify({'error': 'Account not authorized'}), 401
+
+        target_group = None
+        for dialog in client.iter_dialogs():
+            if dialog.is_group and dialog.id == int(group_id):
+                target_group = dialog.entity
+                break
+
+        if not target_group:
+            client.disconnect()
+            return jsonify({'error': 'Group not found in account dialogs'}), 404
+
+        all_participants = []
+        for user in client.iter_participants(target_group):
+            all_participants.append(user)
+
+        with open("members.csv", "w", encoding='UTF-8', newline='') as f:
+            writer = csv.writer(f, delimiter=",", lineterminator="\n")
+            writer.writerow(['username', 'user id', 'access hash', 'name', 'group', 'group id'])
+            
+            for user in all_participants:
+                username = user.username or ""
+                first_name = user.first_name or ""
+                last_name = user.last_name or ""
+                name = (first_name + ' ' + last_name).strip()
+                writer.writerow([username, user.id, user.access_hash, name, getattr(target_group, 'title', 'Group'), target_group.id])
+
+        client.disconnect()
+        return jsonify({'ok': True, 'count': len(all_participants)})
+    except Exception as e:
+        try: client.disconnect()
+        except: pass
+        return jsonify({'error': str(e)}), 500
 
 # ─────────────────────────────────────────────────────────────
 # Entry point

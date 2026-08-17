@@ -82,7 +82,8 @@ function navigate(section) {
 
   const titles = {
     overview: 'Overview', accounts: 'Accounts',
-    proxy: 'Proxy Management', messages: 'Messages', campaign: 'Campaign'
+    proxy: 'Proxy Management', messages: 'Messages', campaign: 'Campaign',
+    scraper: 'Scrape Members'
   };
   document.getElementById('page-title').textContent = titles[section] || section;
   currentSection = section;
@@ -102,6 +103,7 @@ function loadSection(section) {
   if (section === 'proxy')     loadProxy();
   if (section === 'messages')  loadMessages();
   if (section === 'campaign')  loadCampaignStatus();
+  if (section === 'scraper')   loadScraper();
 }
 
 // ── Overview ───────────────────────────────────────────────
@@ -547,6 +549,91 @@ function startStatusPolling() {
 function stopStatusPolling() {
   if (statusPollInterval) { clearInterval(statusPollInterval); statusPollInterval = null; }
 }
+
+// ── Scraper ────────────────────────────────────────────────
+async function loadScraper() {
+  const select = document.getElementById('scrape-account-select');
+  select.innerHTML = '<option value="">Choose an authorized account...</option>';
+  document.getElementById('scrape-groups-container').classList.add('hidden');
+  document.getElementById('scrape-status').classList.add('hidden');
+
+  const { data } = await api('GET', '/api/accounts');
+  const accounts = data.accounts || [];
+  
+  const authorized = accounts.filter(a => a.has_session);
+  if (authorized.length === 0) {
+    select.innerHTML = '<option value="">No authorized accounts available. Add/login an account first.</option>';
+    return;
+  }
+  
+  select.innerHTML += authorized.map(acc => 
+    `<option value="${esc(acc.phone)}">${esc(acc.phone)}</option>`
+  ).join('');
+}
+
+document.getElementById('load-groups-btn').addEventListener('click', async () => {
+  const phone = document.getElementById('scrape-account-select').value;
+  const btn = document.getElementById('load-groups-btn');
+  const container = document.getElementById('scrape-groups-container');
+  const groupSelect = document.getElementById('scrape-group-select');
+
+  if (!phone) {
+    showToast('Please select an account first.', 'error');
+    return;
+  }
+
+  btn.disabled = true;
+  btn.textContent = 'Loading groups from Telegram...';
+  container.classList.add('hidden');
+
+  const { data } = await api('GET', `/api/scraper/groups?phone=${encodeURIComponent(phone)}`);
+  btn.disabled = false;
+  btn.textContent = 'Load Groups from Account';
+
+  if (data.error) {
+    showToast(data.error, 'error');
+    return;
+  }
+
+  const groups = data.groups || [];
+  if (groups.length === 0) {
+    showToast('No megagroups found for this account.', 'error');
+    return;
+  }
+
+  groupSelect.innerHTML = '<option value="">Choose a group...</option>' + 
+    groups.map(g => `<option value="${g.id}">${esc(g.title)}</option>`).join('');
+  
+  container.classList.remove('hidden');
+});
+
+document.getElementById('start-scrape-btn').addEventListener('click', async () => {
+  const phone = document.getElementById('scrape-account-select').value;
+  const group_id = document.getElementById('scrape-group-select').value;
+  const btn = document.getElementById('start-scrape-btn');
+  const statusDiv = document.getElementById('scrape-status');
+  const statusText = document.getElementById('scrape-status-text');
+
+  if (!phone || !group_id) {
+    showToast('Please select both an account and a group.', 'error');
+    return;
+  }
+
+  btn.disabled = true;
+  statusText.textContent = 'Connecting and scraping participants...';
+  statusDiv.classList.remove('hidden');
+
+  const { data } = await api('POST', '/api/scraper/scrape', { phone, group_id });
+  btn.disabled = false;
+  statusDiv.classList.add('hidden');
+
+  if (data.error) {
+    showToast(data.error, 'error');
+  } else {
+    showToast(`Scraped ${data.count} members successfully and saved to members.csv!`, 'success');
+    loadOverview();
+  }
+});
 
 // ── Toast notifications ────────────────────────────────────
 function showToast(message, type = 'success') {

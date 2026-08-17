@@ -62,6 +62,10 @@
         <span class="nav-icon">🚀</span>
         <span class="nav-label">Campaign</span>
       </a>
+      <a href="#" class="nav-item" data-section="scraper">
+        <span class="nav-icon">👥</span>
+        <span class="nav-label">Scraper</span>
+      </a>
     </nav>
     <div class="sidebar-footer">
       <button id="logout-btn" class="btn-ghost">⟶ Logout</button>
@@ -304,6 +308,39 @@
             </div>
             <div id="log-viewer" class="log-viewer">
               <span class="log-line log-dim">Waiting for campaign to start...</span>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ── Scraper ── -->
+      <section id="section-scraper" class="section">
+        <div class="section-header">
+          <h3>Scrape Megagroup Members</h3>
+        </div>
+        <div class="card" style="max-width: 600px; display: flex; flex-direction: column; gap: 20px;">
+          <div class="form-group">
+            <label>1. Select Telegram Account to use</label>
+            <select id="scrape-account-select">
+              <option value="">Choose an authorized account...</option>
+            </select>
+          </div>
+          <button class="btn btn-primary" id="load-groups-btn">Load Groups from Account</button>
+          
+          <div id="scrape-groups-container" class="hidden" style="display: flex; flex-direction: column; gap: 20px; border-top: 1px solid var(--border); padding-top: 20px;">
+            <div class="form-group">
+              <label>2. Select Target Megagroup</label>
+              <select id="scrape-group-select">
+                <option value="">Choose a group...</option>
+              </select>
+            </div>
+            <button class="btn btn-success" id="start-scrape-btn">Scrape & Save to members.csv</button>
+          </div>
+          
+          <div id="scrape-status" class="hidden" style="padding: 14px; background: var(--surface-2); border-radius: 8px; border: 1px solid var(--border);">
+            <div style="display: flex; align-items: center; gap: 8px;">
+              <span class="badge-dot" style="background: var(--success); animation: pulse 1.5s infinite;"></span>
+              <span id="scrape-status-text" style="font-size: 13px; font-weight: 500;">Scraping members...</span>
             </div>
           </div>
         </div>
