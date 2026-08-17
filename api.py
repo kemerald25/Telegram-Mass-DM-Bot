@@ -220,8 +220,17 @@ def start_auth():
     api_id   = data.get('api_id', '').strip()
     api_hash = data.get('api_hash', '').strip()
 
-    if not all([phone, api_id, api_hash]):
-        return jsonify({'error': 'phone, api_id, and api_hash are required'}), 400
+    if not phone:
+        return jsonify({'error': 'phone is required'}), 400
+
+    accounts = load_accounts()
+    if not api_id or not api_hash:
+        if accounts:
+            api_id = accounts[0]['api_id']
+            api_hash = accounts[0]['api_hash']
+        else:
+            return jsonify({'error': 'First account registration requires API ID and API Hash.'}), 400
+
     try:
         api_id_int = int(api_id)
     except ValueError:

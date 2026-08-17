@@ -230,8 +230,13 @@ document.getElementById('send-otp-btn').addEventListener('click', async () => {
   const btn     = document.getElementById('send-otp-btn');
 
   errEl.classList.add('hidden');
-  if (!phone || !api_id || !api_hash) {
-    errEl.textContent = 'All fields are required.';
+  if (!phone) {
+    errEl.textContent = 'Phone number is required.';
+    errEl.classList.remove('hidden');
+    return;
+  }
+  if ((api_id && !api_hash) || (!api_id && api_hash)) {
+    errEl.textContent = 'Provide both API ID and API Hash, or leave both blank to reuse default.';
     errEl.classList.remove('hidden');
     return;
   }
