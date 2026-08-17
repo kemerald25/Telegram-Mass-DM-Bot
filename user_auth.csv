@@ -1,2 +1,2 @@
-api_id,api_hash,phone
-38533101,ff48a22491446dac114b60df4727bddf,+22898154270
+api_id,api_hash,phone,proxy_type,proxy_host,proxy_port,proxy_user,proxy_pass
+38533101,ff48a22491446dac114b60df4727bddf,+22898154270,socks5,p.webshare.io,80,qfuckagl-rotate,621l2v2mvr5c

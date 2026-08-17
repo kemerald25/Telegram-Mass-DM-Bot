@@ -1,3 +1,12 @@
-Hello {}!
-Just reaching out 
-How's the day going?
+Hey {name}!
+Just reaching out — how's the day going?
+---
+Hi {name}, hope you're doing well!
+Wanted to drop a quick message your way.
+---
+What's up {name}? 👋
+Just checking in — hope things are good on your end!
+---
+Hello {name}!
+Been meaning to reach out for a while now.
+Hope the day is treating you well 🙂
