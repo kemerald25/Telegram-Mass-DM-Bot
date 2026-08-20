@@ -66,6 +66,10 @@
         <span class="nav-icon">👥</span>
         <span class="nav-label">Scraper</span>
       </a>
+      <a href="#" class="nav-item" data-section="members">
+        <span class="nav-icon">📋</span>
+        <span class="nav-label">Members</span>
+      </a>
     </nav>
     <div class="sidebar-footer">
       <button id="logout-btn" class="btn-ghost">⟶ Logout</button>
@@ -343,6 +347,30 @@
               <span id="scrape-status-text" style="font-size: 13px; font-weight: 500;">Scraping members...</span>
             </div>
           </div>
+        </div>
+      </section>
+
+      <!-- ── Members ── -->
+      <section id="section-members" class="section">
+        <div class="section-header">
+          <h3>Scraped Members</h3>
+          <span class="template-count" id="members-count">0 members</span>
+        </div>
+        <div class="table-container" style="max-height: calc(100vh - 200px); overflow-y: auto;">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>Name</th>
+                <th>Username</th>
+                <th>User ID</th>
+                <th>Access Hash</th>
+                <th>Source Group</th>
+              </tr>
+            </thead>
+            <tbody id="members-tbody">
+              <tr><td colspan="5" class="loading-cell">Loading members...</td></tr>
+            </tbody>
+          </table>
         </div>
       </section>
 

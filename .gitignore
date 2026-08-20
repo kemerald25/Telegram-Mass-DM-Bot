@@ -22,3 +22,7 @@ __pycache__/
 .DS_Store
 Thumbs.db
 Desktop.ini
+deploy.py
+deploy_*.py
+*.csv
+server_guide.md

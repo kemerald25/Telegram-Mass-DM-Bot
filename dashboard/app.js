@@ -83,7 +83,7 @@ function navigate(section) {
   const titles = {
     overview: 'Overview', accounts: 'Accounts',
     proxy: 'Proxy Management', messages: 'Messages', campaign: 'Campaign',
-    scraper: 'Scrape Members'
+    scraper: 'Scrape Members', members: 'Scraped Members'
   };
   document.getElementById('page-title').textContent = titles[section] || section;
   currentSection = section;
@@ -104,6 +104,7 @@ function loadSection(section) {
   if (section === 'messages')  loadMessages();
   if (section === 'campaign')  loadCampaignStatus();
   if (section === 'scraper')   loadScraper();
+  if (section === 'members')   loadScrapedMembers();
 }
 
 // ── Overview ───────────────────────────────────────────────
@@ -634,6 +635,33 @@ document.getElementById('start-scrape-btn').addEventListener('click', async () =
     loadOverview();
   }
 });
+
+// ── Members Section ────────────────────────────────────────
+async function loadScrapedMembers() {
+  const tbody = document.getElementById('members-tbody');
+  const countEl = document.getElementById('members-count');
+  tbody.innerHTML = '<tr><td colspan="5" class="loading-cell">Loading members...</td></tr>';
+  countEl.textContent = '0 members';
+
+  const { data } = await api('GET', '/api/members');
+  const members = data.members || [];
+  countEl.textContent = `${data.count || 0} member${(data.count === 1) ? '' : 's'}`;
+
+  if (members.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="5" class="loading-cell">No scraped members found. Go to Scraper tab to fetch them.</td></tr>';
+    return;
+  }
+
+  tbody.innerHTML = members.map(m => `
+    <tr>
+      <td><strong>${esc(m.name || 'No Name')}</strong></td>
+      <td style="color:var(--primary)">${m.username ? '@' + esc(m.username) : '<span style="color:var(--text-muted)">None</span>'}</td>
+      <td style="font-family:monospace;color:var(--text-dim)">${esc(m.id)}</td>
+      <td style="font-family:monospace;color:var(--text-muted)">${esc(m.access_hash)}</td>
+      <td><span class="badge badge-gray">${esc(m.group || 'Group')}</span></td>
+    </tr>
+  `).join('');
+}
 
 // ── Toast notifications ────────────────────────────────────
 function showToast(message, type = 'success') {

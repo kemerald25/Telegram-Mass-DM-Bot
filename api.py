@@ -6,7 +6,7 @@ Access: http://your-droplet-ip:8000
 """
 
 from flask import Flask, request, jsonify, session, Response, send_from_directory
-from telethon.sync import TelegramClient
+from telethon import TelegramClient
 from telethon.tl.functions.messages import GetDialogsRequest
 from telethon.tl.types import InputPeerEmpty, InputPeerUser
 from telethon.errors import (
@@ -14,6 +14,34 @@ from telethon.errors import (
     PeerFloodError, UserDeactivatedError, AuthKeyUnregisteredError, FloodWaitError
 )
 import socks
+import asyncio
+import threading
+
+# Dedicated background asyncio loop thread for running all Telegram operations thread-safely
+_loop = asyncio.new_event_loop()
+
+def _run_event_loop():
+    asyncio.set_event_loop(_loop)
+    _loop.run_forever()
+
+_loop_thread = threading.Thread(target=_run_event_loop, daemon=True)
+_loop_thread.start()
+
+def run_async(coro):
+    future = asyncio.run_coroutine_threadsafe(coro, _loop)
+    return future.result()
+
+async def _get_dialogs_list(client):
+    dialogs = []
+    async for d in client.iter_dialogs():
+        dialogs.append(d)
+    return dialogs
+
+async def _get_participants_list(client, target_group):
+    participants = []
+    async for p in client.iter_participants(target_group):
+        participants.append(p)
+    return participants
 import asyncio
 import threading
 import queue
@@ -36,9 +64,15 @@ app.permanent_session_lifetime = timedelta(hours=24)
 DASHBOARD_USER = os.environ.get('DASHBOARD_USER', 'admin')
 DASHBOARD_PASS = os.environ.get('DASHBOARD_PASS', 'dmbot2024!')
 PORT           = int(os.environ.get('PORT', 8000))
+DATA_DIR       = os.environ.get('DATA_DIR', '.')
 # ══════════════════════════════════════════════════════
 
-DEFAULT_PROXY_FILE = 'proxy_default.json'
+os.makedirs(DATA_DIR, exist_ok=True)
+
+def data_path(filename):
+    return os.path.join(DATA_DIR, filename)
+
+DEFAULT_PROXY_FILE = data_path('proxy_default.json')
 
 # ─────────────────────────────────────────────────────────────
 # In-memory state
@@ -132,9 +166,10 @@ def proxy_display(acc):
 # ─────────────────────────────────────────────────────────────
 def load_accounts():
     accounts = []
-    if not os.path.exists('user_auth.csv'):
+    auth_file = data_path('user_auth.csv')
+    if not os.path.exists(auth_file):
         return accounts
-    with open('user_auth.csv', 'r', encoding='UTF-8') as f:
+    with open(auth_file, 'r', encoding='UTF-8') as f:
         reader = csv.reader(f, delimiter=',', lineterminator='\n')
         try:
             header = next(reader)
@@ -156,7 +191,7 @@ def load_accounts():
     return accounts
 
 def save_accounts(accounts):
-    with open('user_auth.csv', 'w', encoding='UTF-8', newline='') as f:
+    with open(data_path('user_auth.csv'), 'w', encoding='UTF-8', newline='') as f:
         writer = csv.writer(f, delimiter=',', lineterminator='\n')
         writer.writerow(['api_id', 'api_hash', 'phone', 'proxy_type',
                          'proxy_host', 'proxy_port', 'proxy_user', 'proxy_pass'])
@@ -184,9 +219,10 @@ def save_default_proxy(proxy):
 # Message helpers
 # ─────────────────────────────────────────────────────────────
 def load_message_templates():
-    if not os.path.exists('message.txt'):
+    msg_file = data_path('message.txt')
+    if not os.path.exists(msg_file):
         return []
-    with open('message.txt', 'r', encoding='UTF-8') as f:
+    with open(msg_file, 'r', encoding='UTF-8') as f:
         content = f.read()
     return [t.strip() for t in content.split('---') if t.strip()]
 
@@ -208,7 +244,7 @@ def get_accounts():
     return jsonify({'accounts': [
         {'phone': a['phone'], 'api_id': a['api_id'],
          'proxy': proxy_display(a),
-         'has_session': os.path.exists(f"session_{a['phone']}.session")}
+         'has_session': os.path.exists(data_path(f"session_{a['phone']}.session"))}
         for a in load_accounts()
     ]})
 
@@ -244,15 +280,15 @@ def start_auth():
     with _auth_lock:
         if phone in _auth_pending:
             try:
-                _auth_pending[phone]['client'].disconnect()
+                run_async(_auth_pending[phone]['client'].disconnect())
             except Exception:
                 pass
             del _auth_pending[phone]
 
     try:
-        client = TelegramClient(f'session_{phone}', api_id_int, api_hash)
-        client.connect()
-        sent = client.send_code_request(phone)
+        client = TelegramClient(data_path(f'session_{phone}'), api_id_int, api_hash, loop=_loop)
+        run_async(client.connect())
+        sent = run_async(client.send_code_request(phone))
         with _auth_lock:
             _auth_pending[phone] = {
                 'client': client,
@@ -280,7 +316,7 @@ def verify_otp():
         return jsonify({'error': 'code is required'}), 400
 
     try:
-        pending['client'].sign_in(phone, code, phone_code_hash=pending['phone_code_hash'])
+        run_async(pending['client'].sign_in(phone, code, phone_code_hash=pending['phone_code_hash']))
         _finish_auth(phone, pending)
         return jsonify({'ok': True, 'message': f'{phone} registered successfully!'})
     except SessionPasswordNeededError:
@@ -304,7 +340,7 @@ def verify_2fa():
         return jsonify({'error': 'No pending auth for this phone.'}), 400
 
     try:
-        pending['client'].sign_in(password=password)
+        run_async(pending['client'].sign_in(password=password))
         _finish_auth(phone, pending)
         return jsonify({'ok': True, 'message': f'{phone} registered with 2FA!'})
     except Exception as e:
@@ -320,7 +356,7 @@ def _finish_auth(phone, pending):
     accounts.append(new_acc)
     save_accounts(accounts)
     try:
-        pending['client'].disconnect()
+        run_async(pending['client'].disconnect())
     except Exception:
         pass
     with _auth_lock:
@@ -334,12 +370,13 @@ def delete_account(phone):
     if len(new_list) == len(accounts):
         return jsonify({'error': 'Account not found'}), 404
     save_accounts(new_list)
-    sf = f'session_{phone}.session'
-    if os.path.exists(sf):
-        try:
-            os.remove(sf)
-        except Exception:
-            pass
+    for suffix in ['.session', '.session-journal']:
+        sf = data_path(f'session_{phone}{suffix}')
+        if os.path.exists(sf):
+            try:
+                os.remove(sf)
+            except Exception:
+                pass
     return jsonify({'ok': True, 'message': f'{phone} removed'})
 
 # ─────────────────────────────────────────────────────────────
@@ -392,8 +429,9 @@ def remove_proxy(phone):
 @login_required
 def get_message():
     raw = ''
-    if os.path.exists('message.txt'):
-        with open('message.txt', 'r', encoding='UTF-8') as f:
+    msg_file = data_path('message.txt')
+    if os.path.exists(msg_file):
+        with open(msg_file, 'r', encoding='UTF-8') as f:
             raw = f.read()
     templates = [t.strip() for t in raw.split('---') if t.strip()]
     return jsonify({'raw': raw, 'count': len(templates)})
@@ -405,7 +443,7 @@ def save_message():
     raw  = data.get('raw', '')
     if not raw.strip():
         return jsonify({'error': 'Message cannot be empty'}), 400
-    with open('message.txt', 'w', encoding='UTF-8') as f:
+    with open(data_path('message.txt'), 'w', encoding='UTF-8') as f:
         f.write(raw)
     count = len([t for t in raw.split('---') if t.strip()])
     return jsonify({'ok': True, 'count': count})
@@ -416,18 +454,27 @@ def save_message():
 @app.route('/api/members', methods=['GET'])
 @login_required
 def get_members():
-    if not os.path.exists('members.csv'):
-        return jsonify({'count': 0, 'sample': []})
-    sample = []
-    count  = 0
-    with open('members.csv', encoding='UTF-8') as f:
-        rows = list(csv.reader(f))
-    if len(rows) > 1:
-        count  = len(rows) - 1
-        for row in rows[1:6]:
-            if len(row) >= 4:
-                sample.append({'name': row[3], 'username': row[0]})
-    return jsonify({'count': count, 'sample': sample})
+    csv_path = data_path('members.csv')
+    if not os.path.exists(csv_path):
+        return jsonify({'count': 0, 'members': []})
+    members = []
+    with open(csv_path, encoding='UTF-8') as f:
+        reader = csv.reader(f)
+        try:
+            next(reader, None) # skip header
+            for row in reader:
+                if len(row) >= 4:
+                    members.append({
+                        'username': row[0],
+                        'id': row[1],
+                        'access_hash': row[2],
+                        'name': row[3],
+                        'group': row[4] if len(row) > 4 else 'Group',
+                        'group_id': row[5] if len(row) > 5 else ''
+                    })
+        except Exception:
+            pass
+    return jsonify({'count': len(members), 'members': members})
 
 # ─────────────────────────────────────────────────────────────
 # Campaign runner (background thread)
@@ -457,11 +504,11 @@ def _run_campaign(config):
         _clog('[Error] No accounts registered.'); campaign_status['running'] = False; return
     if not templates:
         _clog('[Error] message.txt is empty.'); campaign_status['running'] = False; return
-    if not os.path.exists('members.csv'):
+    if not os.path.exists(data_path('members.csv')):
         _clog('[Error] members.csv not found.'); campaign_status['running'] = False; return
 
     users = []
-    with open('members.csv', encoding='UTF-8') as f:
+    with open(data_path('members.csv'), encoding='UTF-8') as f:
         rows = csv.reader(f, delimiter=',', lineterminator='\n')
         next(rows, None)
         for row in rows:
@@ -476,8 +523,9 @@ def _run_campaign(config):
         _clog('[Error] No valid users in members.csv.'); campaign_status['running'] = False; return
 
     sent_history = set()
-    if os.path.exists('sent_history.txt'):
-        with open('sent_history.txt', 'r', encoding='UTF-8') as f:
+    hist_file = data_path('sent_history.txt')
+    if os.path.exists(hist_file):
+        with open(hist_file, 'r', encoding='UTF-8') as f:
             for line in f:
                 try:
                     sent_history.add(int(line.strip()))
@@ -497,7 +545,7 @@ def _run_campaign(config):
     def connect_next(proactive=True):
         nonlocal current_idx, client, sent_this_sess, session_limit
         if client:
-            try: client.disconnect()
+            try: run_async(client.disconnect())
             except Exception: pass
             client = None
 
@@ -524,13 +572,14 @@ def _run_campaign(config):
             campaign_status['current_account'] = acc['phone']
 
             try:
-                c = TelegramClient(f'session_{acc["phone"]}', int(acc['api_id']), acc['api_hash'],
+                c = TelegramClient(data_path(f'session_{acc["phone"]}'), int(acc['api_id']), acc['api_hash'],
                                    proxy=proxy, device_model='Windows Desktop',
-                                   system_version='Windows 11', app_version='4.8.4')
-                c.connect()
-                if not c.is_user_authorized():
+                                   system_version='Windows 11', app_version='4.8.4',
+                                   loop=_loop)
+                run_async(c.connect())
+                if not run_async(c.is_user_authorized()):
                     _clog(f'[Rotation] {acc["phone"]} not authorized. Removing.')
-                    c.disconnect()
+                    run_async(c.disconnect())
                     available.pop(current_idx)
                     continue
                 client         = c
@@ -540,7 +589,7 @@ def _run_campaign(config):
                 return client
             except Exception as e:
                 _clog(f'[Rotation] Failed {acc["phone"]}: {e}')
-                try: c.disconnect()
+                try: run_async(c.disconnect())
                 except Exception: pass
                 available.pop(current_idx)
 
@@ -580,16 +629,16 @@ def _run_campaign(config):
                 if mode == 2:
                     if not user['username']:
                         _clog(f'[Skip] {user["name"]} — no username'); sent = True; continue
-                    receiver = client.get_input_entity(user['username'])
+                    receiver = run_async(client.get_input_entity(user['username']))
                 else:
                     receiver = InputPeerUser(user['id'], user['access_hash'])
 
                 msg = format_message(templates, user['name'])
                 acc_phone = available[current_idx]['phone']
                 _clog(f'[Send] → {user["name"]} ({user["id"]}) via {acc_phone}')
-                client.send_message(receiver, msg)
+                run_async(client.send_message(receiver, msg))
 
-                with open('sent_history.txt', 'a', encoding='UTF-8') as f:
+                with open(data_path('sent_history.txt'), 'a', encoding='UTF-8') as f:
                     f.write(f"{user['id']}\n")
                 sent_history.add(user['id'])
                 sent_this_sess       += 1
@@ -629,7 +678,7 @@ def _run_campaign(config):
                     _clog(f'[Skip] Send failed for {user["name"]}: {e}'); sent = True
 
     if client:
-        try: client.disconnect()
+        try: run_async(client.disconnect())
         except Exception: pass
 
     _clog('═' * 55)
@@ -706,21 +755,21 @@ def get_scraper_groups():
         return jsonify({'error': 'Account not found'}), 404
 
     proxy = build_proxy_arg(acc)
-    client = TelegramClient(f"session_{phone}", int(acc['api_id']), acc['api_hash'], proxy=proxy)
+    client = TelegramClient(data_path(f"session_{phone}"), int(acc['api_id']), acc['api_hash'], proxy=proxy, loop=_loop)
     try:
-        client.connect()
-        if not client.is_user_authorized():
+        run_async(client.connect())
+        if not run_async(client.is_user_authorized()):
             return jsonify({'error': 'Account not authorized'}), 401
 
         chats = []
         last_date = None
-        result = client(GetDialogsRequest(
+        result = run_async(client(GetDialogsRequest(
             offset_date=last_date,
             offset_id=0,
             offset_peer=InputPeerEmpty(),
             limit=500,
             hash=0
-        ))
+        )))
         chats.extend(result.chats)
         
         groups = []
@@ -735,10 +784,10 @@ def get_scraper_groups():
             except AttributeError:
                 continue
 
-        client.disconnect()
+        run_async(client.disconnect())
         return jsonify({'groups': groups})
     except Exception as e:
-        try: client.disconnect()
+        try: run_async(client.disconnect())
         except: pass
         return jsonify({'error': str(e)}), 500
 
@@ -759,27 +808,26 @@ def start_scrape():
         return jsonify({'error': 'Account not found'}), 404
 
     proxy = build_proxy_arg(acc)
-    client = TelegramClient(f"session_{phone}", int(acc['api_id']), acc['api_hash'], proxy=proxy)
+    client = TelegramClient(data_path(f"session_{phone}"), int(acc['api_id']), acc['api_hash'], proxy=proxy, loop=_loop)
     try:
-        client.connect()
-        if not client.is_user_authorized():
+        run_async(client.connect())
+        if not run_async(client.is_user_authorized()):
             return jsonify({'error': 'Account not authorized'}), 401
 
         target_group = None
-        for dialog in client.iter_dialogs():
+        dialogs = run_async(_get_dialogs_list(client))
+        for dialog in dialogs:
             if dialog.is_group and dialog.id == int(group_id):
                 target_group = dialog.entity
                 break
 
         if not target_group:
-            client.disconnect()
+            run_async(client.disconnect())
             return jsonify({'error': 'Group not found in account dialogs'}), 404
 
-        all_participants = []
-        for user in client.iter_participants(target_group):
-            all_participants.append(user)
+        all_participants = run_async(_get_participants_list(client, target_group))
 
-        with open("members.csv", "w", encoding='UTF-8', newline='') as f:
+        with open(data_path("members.csv"), "w", encoding='UTF-8', newline='') as f:
             writer = csv.writer(f, delimiter=",", lineterminator="\n")
             writer.writerow(['username', 'user id', 'access hash', 'name', 'group', 'group id'])
             
@@ -790,10 +838,10 @@ def start_scrape():
                 name = (first_name + ' ' + last_name).strip()
                 writer.writerow([username, user.id, user.access_hash, name, getattr(target_group, 'title', 'Group'), target_group.id])
 
-        client.disconnect()
+        run_async(client.disconnect())
         return jsonify({'ok': True, 'count': len(all_participants)})
     except Exception as e:
-        try: client.disconnect()
+        try: run_async(client.disconnect())
         except: pass
         return jsonify({'error': str(e)}), 500
 
@@ -803,11 +851,11 @@ def start_scrape():
 if __name__ == '__main__':
     os.makedirs('dashboard', exist_ok=True)
     print(f"""
-╔════════════════════════════════════════════╗
-║    Telegram DM Bot — Web Dashboard         ║
-╠════════════════════════════════════════════╣
-║  URL  :  http://0.0.0.0:{PORT}              ║
-║  User :  {DASHBOARD_USER:<34}║
-╚════════════════════════════════════════════╝
++--------------------------------------------+
+|    Telegram DM Bot -- Web Dashboard        |
++--------------------------------------------+
+|  URL  :  http://0.0.0.0:{PORT}              |
+|  User :  {DASHBOARD_USER:<34}|
++--------------------------------------------+
 """)
     app.run(host='0.0.0.0', port=PORT, threaded=True, debug=False)
